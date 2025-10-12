@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>苏州市智慧交通系统</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- 引入百度地图API -->
+    <script type="text/javascript" src="https://api.map.baidu.com/api?v=3.0&amp;ak=cQgiplWjsTZs6D38GtVxwwZGFClmPnSx"></script>
+    <!-- 引入Chart.js用于图表展示 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    
+    <script>
+        // 配置Tailwind自定义颜色和字体
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#1E88E5',
+                        secondary: '#26A69A',
+                        accent: '#FFA000',
+                        danger: '#E53935',
+                        dark: '#263238',
+                        light: '#ECEFF1'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .glass {
+                background: rgba(255, 255, 255, 0.25);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+                border: 1px solid rgba(255, 255, 255, 0.18);
+            }
+            .map-container {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 0;
+            }
+            .overlay {
+                position: relative;
+                z-index: 10;
+            }
+            .sidebar {
+                transition: all 0.3s ease;
+                height: calc(100vh - 6rem);
+                overflow-y: auto;
+            }
+            .right-panel {
+                transition: all 0.3s ease;
+                height: calc(50vh - 3.5rem);
+                overflow-y: auto;
+            }
+            .media-container {
+                max-width: 300px;
+                max-height: 200px;
+                overflow: hidden;
+            }
+            .title-bar {
+                background: rgba(255, 255, 255, 0.8);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+            }
+            .chart-container {
+                position: relative;
+                height: 220px;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body class="font-sans text-dark overflow-hidden">
+    <!-- 顶部标题 -->
+    <div class="overlay title-bar w-full py-4 px-6 flex justify-center items-center shadow-md z-20">
+        <h1 class="text-2xl md:text-3xl font-bold text-dark flex items-center">
+            <i class="fa fa-road text-primary mr-3 text-3xl"></i>
+            苏州市智慧交通系统
+        </h1>
+    </div>
+    
+    <!-- 地图容器 -->
+    <div id="map" class="map-container"></div>
+    
+    <!-- 左上角 - 地点窗口 -->
+    <div class="fixed left-4 top-[6rem] overlay right-panel glass w-full md:w-72 p-4 rounded-xl shadow-lg z-10">
+        <header class="mb-3 pb-2 border-b border-gray-200">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-map-marker text-danger text-xl"></i>
+                <h2 class="text-lg font-bold text-dark">地点</h2>
+            </div>
+        </header>
+        
+        <main>
+            <!-- 道路名称输入区域 -->
+            <div class="space-y-3 mb-3">
+                <div>
+                    <label for="road-name" class="block text-sm font-medium text-gray-700 mb-1">道路名称</label>
+                    <div class="relative">
+                        <i class="fa fa-road absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"></i>
+                        <input type="text" id="road-name" placeholder="例如: 干将路" class="w-full pl-10 pr-3 py-2.5 rounded-lg bg-white/80 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-danger text-sm">
+                    </div>
+                </div>
+                
+                <button id="search-road-btn" class="w-full bg-danger hover:bg-danger/90 text-white px-5 py-2.5 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 mt-3">
+                    <i class="fa fa-search"></i>
+                    <span>搜索道路</span>
+                </button>
+                
+                <div id="road-search-feedback" class="mt-3 text-xs leading-relaxed text-gray-600 hidden"></div>
+            </div>
+        </main>
+    </div>
+    
+
+    
+    <!-- 右侧面板容器 -->
+    <div class="fixed right-0 top-[6rem] bottom-0 flex flex-col justify-start items-end p-4 z-10">
+        <!-- 右侧面板 - 日期统计 -->
+        <div class="overlay right-panel glass w-full md:w-72 p-4 mb-2 rounded-xl shadow-lg">
+            <header class="mb-3 pb-2 border-b border-gray-200">
+                <div class="flex items-center space-x-2">
+                    <i class="fa fa-line-chart text-secondary text-xl"></i>
+                    <h2 class="text-lg font-bold text-dark">日期统计</h2>
+                </div>
+            </header>
+            
+            <main>
+                <div class="chart-container">
+                    <canvas id="dateChart"></canvas>
+                </div>
+                <p class="text-xs text-gray-500 mt-1 text-center">近5日标记数量统计</p>
+            </main>
+        </div>
+        
+        <!-- 右侧面板 - 已添加标记 -->
+        <div class="overlay right-panel glass w-full md:w-72 p-4 rounded-xl shadow-lg">
+            <header class="mb-3 pb-2 border-b border-gray-200">
+                <div class="flex items-center space-x-2">
+                    <i class="fa fa-list text-primary text-xl"></i>
+                    <h2 class="text-lg font-bold text-dark">已添加标记</h2>
+                </div>
+            </header>
+            
+            <main>
+                <div id="markers-list" class="space-y-2 max-h-64 overflow-y-auto pr-2">
+                    <!-- 标记列表将通过JavaScript动态添加 -->
+                    <div class="text-center text-gray-500 text-sm py-6">
+                        尚未添加任何标记
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- 左下角 - 实时画面窗口 -->
+    <div class="fixed left-4 bottom-8 overlay glass w-full md:w-96 p-4 rounded-xl shadow-lg z-10">
+        <header class="mb-3 pb-2 border-b border-gray-200">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-video-camera text-accent text-xl"></i>
+                <h2 class="text-lg font-bold text-dark">实时画面</h2>
+            </div>
+        </header>
+        
+        <main class="flex items-center justify-center h-64">
+            <video id="video1" autoplay muted loop playsinline preload="auto" class="w-full h-full object-cover rounded-lg">
+                <source src="11.mp4" type="video/mp4">
+                您的浏览器不支持视频播放。
+            </video>
+        </main>
+    </div>
+    
+    <script>
+        // 初始化地图
+        let map;
+        let markers = []; // 存储所有标记的数组
+        let geoc = null; // 地理编码服务实例
+        // 当前代码已在后续重复声明，此处移除避免重复声明错误
+        
+        // 日期统计数据
+        let dateData = {};
+        let dateChart = null;
+        
+        // 初始化图表
+        function initCharts() {
+            // 确保Chart.js已加载
+            if (typeof Chart === 'undefined') {
+                setTimeout(initCharts, 100);
+                return;
+            }
+            
+            // 初始化日期数据（近5天）
+            const today = new Date();
+            for (let i = 4; i >= 0; i--) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i);
+                const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
+                // 为前4天生成随机假数据（1-5个），今天为0
+                dateData[dateStr] = i < 4 ? Math.floor(Math.random() * 5) + 1 : 0;
+            }
+            
+            // 日期统计图表
+            try {
+                const dateCtx = document.getElementById('dateChart').getContext('2d');
+                dateChart = new Chart(dateCtx, {
+                    type: 'line',
+                    data: {
+                        labels: Object.keys(dateData),
+                        datasets: [{
+                            label: '标记数量',
+                            data: Object.values(dateData),
+                            fill: true,
+                            backgroundColor: 'rgba(38, 166, 154, 0.2)',
+                            borderColor: 'rgba(38, 166, 154, 1)',
+                            tension: 0.4,
+                            pointBackgroundColor: 'rgba(38, 166, 154, 1)',
+                            pointRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    precision: 0
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('初始化日期统计图表失败:', error);
+            }
+        }
+        
+        function initMap() {
+            // 创建地图实例，中心点设为苏州市中心
+            map = new BMap.Map("map");
+            const suzhouCenter = new BMap.Point(120.619585, 31.299379); // 苏州市中心经纬度
+            map.centerAndZoom(suzhouCenter, 11);
+            
+            // 启用地图控件
+            map.enableScrollWheelZoom(true); // 启用滚轮缩放
+            map.addControl(new BMap.NavigationControl()); // 添加导航控件
+            map.addControl(new BMap.ScaleControl()); // 添加比例尺控件
+            map.addControl(new BMap.OverviewMapControl()); // 添加缩略图控件
+            
+            // 初始化地理编码服务
+            geoc = new BMap.Geocoder();
+        }
+        
+        // 根据经纬度获取所在地区 - 更准确的区域范围
+        function getDistrictByCoordinates(point, callback) {
+            try {
+                // 苏州各区县的准确地理范围
+                const lng = point.lng;
+                const lat = point.lat;
+                
+                // 虎丘区 - 西部区域
+                if ((lat >= 31.28 && lat <= 31.4) && (lng >= 120.35 && lng <= 120.6)) {
+                    callback('虎丘区');
+                }
+                // 姑苏区 - 中心城区
+                else if ((lat >= 31.25 && lat <= 31.35) && (lng >= 120.57 && lng <= 120.67)) {
+                    callback('姑苏区');
+                }
+                // 工业园区 - 东部区域
+                else if ((lat >= 31.24 && lat <= 31.37) && (lng >= 120.67 && lng <= 120.88)) {
+                    callback('工业园区');
+                }
+                // 吴中区 - 南部区域
+                else if ((lat >= 31.1 && lat <= 31.35) && (lng >= 120.4 && lng <= 120.67)) {
+                    callback('吴中区');
+                }
+                // 相城区 - 北部区域
+                else if ((lat >= 31.35 && lat <= 31.5) && (lng >= 120.45 && lng <= 120.75)) {
+                    callback('相城区');
+                }
+                // 吴江区 - 最南端区域
+                else if ((lat >= 30.9 && lat <= 31.2) && (lng >= 120.3 && lng <= 120.9)) {
+                    callback('吴江区');
+                }
+                // 常熟市 - 东北区域
+                else if ((lat >= 31.45 && lat <= 31.75) && (lng >= 120.6 && lng <= 121.2)) {
+                    callback('常熟市');
+                }
+                // 张家港市 - 正北区域
+                else if ((lat >= 31.7 && lat <= 32.1) && (lng >= 120.4 && lng <= 121.0)) {
+                    callback('张家港市');
+                }
+                // 太仓市 - 最东北区域
+                else if ((lat >= 31.45 && lat <= 31.78) && (lng >= 121.0 && lng <= 121.4)) {
+                    callback('太仓市');
+                }
+                // 昆山市 - 东部偏南区域
+                else if ((lat >= 31.15 && lat <= 31.55) && (lng >= 120.8 && lng <= 121.25)) {
+                    callback('昆山市');
+                }
+                // 默认其他区域
+                else {
+                    callback('其他');
+                }
+            } catch (error) {
+                console.error('获取地区信息失败:', error);
+                callback('其他');
+            }
+        }
+        
+        // 更新统计图表
+        function updateCharts() {
+            try {
+                // 更新日期统计（今天）
+                const today = new Date();
+                const todayStr = `${today.getMonth() + 1}/${today.getDate()}`;
+                dateData[todayStr] = (dateData[todayStr] || 0) + 1;
+                
+                if (dateChart) {
+                    dateChart.data.datasets[0].data = Object.values(dateData);
+                    dateChart.update();
+                }
+            } catch (error) {
+                console.error('更新统计图表失败:', error);
+            }
+        }
+        
+        // 减少统计图表数据（删除标记时）
+        function decreaseChartsData() {
+            try {
+                // 更新日期统计（今天）
+                const today = new Date();
+                const todayStr = `${today.getMonth() + 1}/${today.getDate()}`;
+                if (dateData[todayStr] > 0) {
+                    dateData[todayStr]--;
+                    
+                    if (dateChart) {
+                        dateChart.data.datasets[0].data = Object.values(dateData);
+                        dateChart.update();
+                    }
+                }
+            } catch (error) {
+                console.error('减少统计图表数据失败:', error);
+            }
+        }
+            try {
+                // 补充缺失的 try 块
+            } catch (error) {
+                console.error('减少统计图表数据失败:', error);
+            }
+        
+        // 添加标记到地图
+        function addMarkerToMap(longitude, latitude, mediaName) {
+            // 验证经纬度
+            if (isNaN(longitude) || isNaN(latitude) || longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) {
+                alert("请输入有效的经纬度值！");
+                return;
+            }
+            
+            // 创建点坐标
+            const point = new BMap.Point(longitude, latitude);
+            
+            // 获取地区信息并更新统计
+            getDistrictByCoordinates(point, function(district) {
+                // 创建自定义红色小圆圈图标
+                const circleIcon = new BMap.Icon("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='8' fill='%23E53935' stroke='white' stroke-width='2'/%3E%3C/svg%3E", new BMap.Size(24, 24));
+                
+                // 创建标记
+                const marker = new BMap.Marker(point, {icon: circleIcon});
+                
+                // 存储媒体信息和地区
+                marker.mediaName = mediaName;
+                marker.coordinates = {longitude, latitude};
+                marker.district = district;
+                
+                // 创建信息窗口内容
+                let infoContent = `<div style="padding: 10px; max-width:250px;">`;
+                infoContent += `<h3 style="margin: 0 0 10px 0; color: #E53935;">${district}</h3>`;
+                infoContent += `<p style="margin: 0 0 10px 0; font-size:0.8em;">经纬度: ${longitude.toFixed(6)}, ${latitude.toFixed(6)}</p>`;
+                
+                // 判断文件类型并添加相应的标签
+                if (mediaName) {
+                    const lowerMediaName = mediaName.toLowerCase();
+                    if (lowerMediaName.endsWith('.jpg') || lowerMediaName.endsWith('.jpeg') || lowerMediaName.endsWith('.png') || lowerMediaName.endsWith('.gif')) {
+                        // 图片
+                        infoContent += `<div class="media-container"><img src="${mediaName}" alt="相关图片" style="max-width:100%; max-height:150px; object-fit:contain;"></div>`;
+                    } else if (lowerMediaName.endsWith('.mp4') || lowerMediaName.endsWith('.webm') || lowerMediaName.endsWith('.ogg')) {
+                        // 视频
+                        infoContent += `<div class="media-container"><video controls style="max-width:100%; max-height:150px; object-fit:contain;"><source src="${mediaName}" type="video/mp4">您的浏览器不支持视频播放。</video></div>`;
+                    } else {
+                        // 未知类型
+                        infoContent += `<p>媒体文件: ${mediaName}</p>`;
+                    }
+                }
+                
+                infoContent += `<button onclick="removeMarker(${markers.length})" style="margin-top:10px; background:#f44336; color:white; border:none; padding:5px 10px; border-radius:3px; cursor:pointer; font-size:0.8em;">删除标记</button>`;
+                infoContent += `</div>`;
+                
+                // 创建信息窗口
+                const infoWindow = new BMap.InfoWindow(infoContent);
+                
+                // 点击标记时打开信息窗口
+                marker.addEventListener("click", function() {
+                    this.openInfoWindow(infoWindow);
+                });
+                
+                // 添加标记到地图
+                map.addOverlay(marker);
+                // 将标记添加到数组
+                markers.push({marker, point, mediaName, district});
+                
+                // 移动地图到标记位置
+                map.centerAndZoom(point, 15);
+                
+                // 更新标记列表
+                updateMarkersList();
+                
+                // 更新统计图表
+                updateCharts();
+                
+                // 清空输入框
+                document.getElementById('longitude').value = '';
+                document.getElementById('latitude').value = '';
+                document.getElementById('media-name').value = '';
+            });
+        }
+        
+        // 更新标记列表
+        function updateMarkersList() {
+            const listContainer = document.getElementById('markers-list');
+            
+            // 清空列表
+            listContainer.innerHTML = '';
+            
+            // 如果没有标记
+            if (markers.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="text-center text-gray-500 text-sm py-6">
+                        尚未添加任何标记
+                    </div>
+                `;
+                return;
+            }
+            
+            // 添加标记到列表
+            markers.forEach((item, index) => {
+                const listItem = document.createElement('div');
+                listItem.className = 'p-3 bg-white/60 rounded-lg hover:bg-white/90 transition-colors';
+                listItem.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h4 class="font-semibold text-sm">${item.district}</h4>
+                            <p class="text-xs text-gray-600 mt-1">${item.point.lng.toFixed(6)}, ${item.point.lat.toFixed(6)}</p>
+                            ${item.mediaName ? `<p class="text-xs text-gray-600">媒体: ${item.mediaName}</p>` : ''}
+                        </div>
+                        <div class="flex gap-1">
+                            <button onclick="centerMapOnMarker(${index})" class="text-primary hover:text-primary/80 p-1" title="定位到地图">
+                                <i class="fa fa-map-marker"></i>
+                            </button>
+                            <button onclick="removeMarker(${index})" class="text-danger hover:text-danger/80 p-1" title="删除">
+                                <i class="fa fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                listContainer.appendChild(listItem);
+            });
+        }
+        
+        // 定位到指定标记
+        function centerMapOnMarker(index) {
+            if (index >= 0 && index < markers.length) {
+                map.centerAndZoom(markers[index].point, 15);
+                // 触发标记点击事件，打开信息窗口
+                markers[index].marker.dispatchEvent('click');
+            }
+        }
+        
+        // 删除标记
+        function removeMarker(index) {
+            if (index >= 0 && index < markers.length) {
+                // 获取要删除的标记信息
+                const markerToRemove = markers[index];
+                
+                // 从地图上移除标记
+                map.removeOverlay(markerToRemove.marker);
+                
+                // 更新统计数据
+                decreaseChartsData();
+                
+                // 从数组中移除
+                markers.splice(index, 1);
+                
+                // 更新列表
+                updateMarkersList();
+            }
+        }
+        
+        // 道路高亮相关变量
+        let currentRoadOverlays = [];
+        let currentRoadLabel = null;
+        // 存储CSV路线线条
+        let csvRoutePolyline = null;
+        
+        const roadSearchButton = document.getElementById('search-road-btn');
+        const roadInput = document.getElementById('road-name');
+        const roadFeedbackEl = document.getElementById('road-search-feedback');
+        const roadFeedbackColorClasses = ['text-gray-600', 'text-secondary', 'text-danger', 'text-emerald-600', 'text-amber-600'];
+        
+        const defaultRoadButtonContent = roadSearchButton ? roadSearchButton.innerHTML : '';
+        const loadingRoadButtonContent = '<i class="fa fa-spinner fa-spin"></i><span> 搜索中...</span>';
+        
+        // 搜索道路按钮点击事件
+        if (roadSearchButton) {
+            roadSearchButton.addEventListener('click', () => {
+                searchRoad();
+            });
+        }
+        
+        // 回车键触发搜索道路
+        if (roadInput) {
+            roadInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    searchRoad();
+                }
+            });
+        }
+        
+        // 从CSV文件加载路线并显示在地图上
+        function loadRouteFromCSV() {
+            // 移除之前的CSV路线线条
+            if (csvRoutePolyline) {
+                map.removeOverlay(csvRoutePolyline);
+                csvRoutePolyline = null;
+            }
+            
+            console.log('开始加载CSV路线文件...');
+            
+            // 使用Fetch API读取CSV文件
+            fetch('routes.csv')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('无法加载CSV文件: ' + response.statusText);
+                    }
+                    return response.text();
+                })
+                .then(csvText => {
+                    console.log('CSV文件加载成功，开始解析坐标点...');
+                    
+                    // 解析CSV数据
+                    const lines = csvText.trim().split('\n');
+                    const points = [];
+                    
+                    // 跳过标题行，从第二行开始解析
+                    for (let i = 1; i < lines.length; i++) {
+                        const line = lines[i].trim();
+                        if (line) {
+                            const [latitude, longitude] = line.split(',').map(Number);
+                            if (!isNaN(latitude) && !isNaN(longitude)) {
+                                points.push(new BMap.Point(longitude, latitude));
+                            }
+                        }
+                    }
+                    
+                    console.log('成功解析CSV路线数据，共', points.length, '个坐标点');
+                    
+                    if (points.length < 2) {
+                        console.warn('CSV文件中的有效坐标点不足，无法创建路线');
+                        return;
+                    }
+                    
+                    // 创建红色路线线条
+                    csvRoutePolyline = new BMap.Polyline(points, {
+                        strokeColor: '#E53935',  // 红色
+                        strokeWeight: 5,         // 线条宽度
+                        strokeOpacity: 0.9,      // 透明度
+                        strokeStyle: 'solid',    // 实线
+                        enableMassClear: false   // 防止被清除
+                    });
+                    
+                    // 添加线条到地图
+                    map.addOverlay(csvRoutePolyline);
+                    
+                    // 调整地图视野以显示整个路线
+                    map.setViewport(points);
+                    
+                    console.log('CSV路线已成功添加到地图上');
+                    
+                    // 在随机坐标点上添加无人机标记
+                    addDroneMarker(points);
+                })
+                .catch(error => {
+                    console.error('加载CSV路线文件时出错:', error);
+                    // 尝试使用本地文件路径的替代方法
+                    tryLoadCSVFromLocal();
+                });
+        }
+        
+        // 在随机坐标点上添加无人机标记
+        function addDroneMarker(points) {
+            // 随机选择一个点
+            const randomIndex = Math.floor(Math.random() * points.length);
+            const randomPoint = points[randomIndex];
+            
+            // 创建无人机图标，设置大小比地图线条略大（地图线条宽度为5，无人机图标大小为32x32）
+            const droneIcon = new BMap.Icon('drone.png', new BMap.Size(32, 32));
+            
+            // 创建标记
+            const droneMarker = new BMap.Marker(randomPoint, {icon: droneIcon});
+            
+            // 创建信息窗口内容
+            const infoContent = `<div style="padding: 10px; max-width:200px;">
+                <h3 style="margin: 0 0 10px 0; color: #26A69A;">无人机位置</h3>
+                <p style="margin: 0 0 10px 0; font-size:0.8em;">经纬度: ${randomPoint.lng.toFixed(6)}, ${randomPoint.lat.toFixed(6)}</p>
+                <p style="margin: 0 0 10px 0; font-size:0.8em;">正在实时监测交通状况</p>
+                </div>`;
+            
+            // 创建信息窗口
+            const infoWindow = new BMap.InfoWindow(infoContent);
+            
+            // 点击标记时打开信息窗口
+            droneMarker.addEventListener("click", function() {
+                this.openInfoWindow(infoWindow);
+            });
+            
+            // 添加标记到地图
+            map.addOverlay(droneMarker);
+            
+            console.log('无人机标记已成功添加到地图上的随机坐标点');
+        }
+        
+        // 当fetch失败时尝试使用替代方法（针对本地文件访问限制）
+        function tryLoadCSVFromLocal() {
+            console.log('尝试使用替代方法加载CSV文件...');
+            
+            // 这里使用模拟数据，因为浏览器有本地文件访问限制
+            // 实际部署时，应确保routes.csv可以通过服务器访问
+            const mockPoints = [
+                new BMap.Point(120.431371, 30.887628),
+                new BMap.Point(120.454793, 30.889826),
+                new BMap.Point(120.476074, 30.899686),
+                new BMap.Point(120.49346, 30.910828)
+            ];
+            
+            if (mockPoints.length >= 2) {
+                csvRoutePolyline = new BMap.Polyline(mockPoints, {
+                    strokeColor: '#E53935',
+                    strokeWeight: 5,
+                    strokeOpacity: 0.9,
+                    strokeStyle: 'solid',
+                    enableMassClear: false
+                });
+                
+                map.addOverlay(csvRoutePolyline);
+                map.setViewport(mockPoints);
+                
+                console.log('已使用模拟数据创建CSV路线（请注意：由于浏览器安全限制，本地文件访问可能受限）');
+                console.log('建议：将项目部署到Web服务器上，或使用支持本地文件访问的浏览器设置');
+            }
+        }
+        
+        // 搜索道路并高亮显示
+                const SUZHOU_OSM_AREA_ID = '3604430941';
+        const PI = Math.PI;
+        const X_PI = PI * 3000.0 / 180.0;
+        const A = 6378245.0;
+        const EE = 0.006693421622965943;
+
+        function setRoadSearchButtonState(isLoading) {
+            if (!roadSearchButton) {
+                return;
+            }
+
+            if (isLoading) {
+                roadSearchButton.disabled = true;
+                roadSearchButton.innerHTML = loadingRoadButtonContent || defaultRoadButtonContent;
+                roadSearchButton.classList.add('opacity-80', 'cursor-not-allowed');
+            } else {
+                roadSearchButton.disabled = false;
+                roadSearchButton.innerHTML = defaultRoadButtonContent;
+                roadSearchButton.classList.remove('opacity-80', 'cursor-not-allowed');
+            }
+        }
+
+        function updateRoadFeedback(message, state = 'info') {
+            if (!roadFeedbackEl) {
+                if (message) {
+                    console.log('[道路高亮]', message);
+                }
+                return;
+            }
+
+            roadFeedbackColorClasses.forEach(cls => roadFeedbackEl.classList.remove(cls));
+
+            if (!message) {
+                roadFeedbackEl.textContent = '';
+                roadFeedbackEl.classList.add('hidden');
+                return;
+            }
+
+            roadFeedbackEl.classList.remove('hidden');
+
+            const stateClassMap = {
+                success: 'text-emerald-600',
+                warning: 'text-amber-600',
+                danger: 'text-danger',
+                error: 'text-danger',
+                loading: 'text-secondary',
+                info: 'text-gray-600'
+            };
+
+            const targetClass = stateClassMap[state] || stateClassMap.info;
+            roadFeedbackEl.classList.add(targetClass);
+            roadFeedbackEl.textContent = message;
+        }
+
+        function clearCurrentRoadHighlight() {
+            if (currentRoadOverlays && currentRoadOverlays.length) {
+                currentRoadOverlays.forEach(overlay => map.removeOverlay(overlay));
+                currentRoadOverlays = [];
+            }
+
+            if (currentRoadLabel) {
+                map.removeOverlay(currentRoadLabel);
+                currentRoadLabel = null;
+            }
+        }
+
+        function computeCentroidPoint(points) {
+            if (!Array.isArray(points) || points.length === 0) {
+                return null;
+            }
+
+            let sumLng = 0;
+            let sumLat = 0;
+            points.forEach(pt => {
+                sumLng += pt.lng;
+                sumLat += pt.lat;
+            });
+            return new BMap.Point(sumLng / points.length, sumLat / points.length);
+        }
+
+        function renderRoadHighlight(polylines, roadName, options = {}) {
+            if (!map || !Array.isArray(polylines) || polylines.length === 0) {
+                return null;
+            }
+
+            clearCurrentRoadHighlight();
+
+            const settings = Object.assign({
+                strokeColor: '#FF3D00',
+                strokeWeight: 6,
+                strokeOpacity: 0.92,
+                glowColor: 'rgba(255, 138, 101, 0.75)',
+                glowWeight: 12,
+                glowOpacity: 0.35,
+                strokeStyle: 'solid',
+                dashed: false,
+                labelText: roadName
+            }, options);
+
+            const allPoints = [];
+
+            polylines.forEach(path => {
+                if (!Array.isArray(path) || path.length < 2) {
+                    return;
+                }
+
+                const validPath = path.filter(Boolean);
+                if (validPath.length < 2) {
+                    return;
+                }
+
+                const glowLine = new BMap.Polyline(validPath, {
+                    strokeColor: settings.glowColor,
+                    strokeWeight: settings.glowWeight,
+                    strokeOpacity: settings.glowOpacity,
+                    strokeStyle: settings.strokeStyle,
+                    enableMassClear: false
+                });
+
+                const mainLine = new BMap.Polyline(validPath, {
+                    strokeColor: settings.strokeColor,
+                    strokeWeight: settings.strokeWeight,
+                    strokeOpacity: settings.strokeOpacity,
+                    strokeStyle: settings.dashed ? 'dashed' : settings.strokeStyle,
+                    enableMassClear: false
+                });
+
+                map.addOverlay(glowLine);
+                map.addOverlay(mainLine);
+                currentRoadOverlays.push(glowLine, mainLine);
+
+                allPoints.push(...validPath);
+            });
+
+            if (!allPoints.length) {
+                return null;
+            }
+
+            const viewportPoints = allPoints.length > 2000
+                ? allPoints.filter((_, index) => index % Math.ceil(allPoints.length / 2000) === 0)
+                : allPoints;
+            map.setViewport(viewportPoints);
+
+            const centroid = computeCentroidPoint(allPoints);
+            if (centroid) {
+                const label = new BMap.Label(settings.labelText, {
+                    position: centroid,
+                    offset: new BMap.Size(12, -18)
+                });
+                label.setStyle({
+                    color: '#0D47A1',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    border: '1px solid rgba(13,71,161,0.25)',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    backgroundColor: 'rgba(255,255,255,0.9)',
+                    boxShadow: '0 2px 8px rgba(13,71,161,0.2)'
+                });
+                map.addOverlay(label);
+                currentRoadLabel = label;
+            }
+
+            return { pointCount: allPoints.length };
+        }
+
+        function calculateTotalDistance(polylines) {
+            if (!map || !Array.isArray(polylines)) {
+                return 0;
+            }
+
+            let total = 0;
+            polylines.forEach(path => {
+                if (!Array.isArray(path) || path.length < 2) {
+                    return;
+                }
+                for (let i = 1; i < path.length; i++) {
+                    total += map.getDistance(path[i - 1], path[i]);
+                }
+            });
+            return total;
+        }
+
+        function deduplicatePolylines(polylines) {
+            const seen = new Set();
+            const result = [];
+
+            polylines.forEach(path => {
+                if (!Array.isArray(path) || !path.length) {
+                    return;
+                }
+
+                const first = path[0];
+                const last = path[path.length - 1];
+                const keyA = first.lng.toFixed(6) + ',' + first.lat.toFixed(6) + '|' + last.lng.toFixed(6) + ',' + last.lat.toFixed(6);
+                const keyB = last.lng.toFixed(6) + ',' + last.lat.toFixed(6) + '|' + first.lng.toFixed(6) + ',' + first.lat.toFixed(6);
+
+                if (!seen.has(keyA) && !seen.has(keyB)) {
+                    seen.add(keyA);
+                    seen.add(keyB);
+                    result.push(path);
+                }
+            });
+
+            return result;
+        }
+
+        function buildOverpassRegex(roadName) {
+            const escaped = roadName
+                .trim()
+                .replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')
+                .replace(/\s+/g, '.*');
+            return `.*${escaped}.*`;
+        }
+
+        function buildOverpassQuery(roadName) {
+            const pattern = buildOverpassRegex(roadName);
+            return `
+[out:json][timeout:45];
+area(${SUZHOU_OSM_AREA_ID})->.searchArea;
+(
+  way["name"~"${pattern}", i]["highway"](area.searchArea);
+  way["alt_name"~"${pattern}", i]["highway"](area.searchArea);
+  way["name:zh"~"${pattern}", i]["highway"](area.searchArea);
+  relation["name"~"${pattern}", i]["route"="road"](area.searchArea);
+);
+out geom;
+`;
+        }
+
+        function convertWgsToBaiduPoint(lng, lat) {
+            if (typeof lng !== 'number' || typeof lat !== 'number') {
+                return null;
+            }
+            const [bdLng, bdLat] = wgs84ToBd09(lng, lat);
+            return new BMap.Point(bdLng, bdLat);
+        }
+
+        function wgs84ToBd09(lng, lat) {
+            const [gcjLng, gcjLat] = wgs84ToGcj02(lng, lat);
+            return gcj02ToBd09(gcjLng, gcjLat);
+        }
+
+        function wgs84ToGcj02(lng, lat) {
+            if (outOfChina(lng, lat)) {
+                return [lng, lat];
+            }
+            let dLat = transformLat(lng - 105.0, lat - 35.0);
+            let dLon = transformLon(lng - 105.0, lat - 35.0);
+            const radLat = lat / 180.0 * PI;
+            let magic = Math.sin(radLat);
+            magic = 1 - EE * magic * magic;
+            const sqrtMagic = Math.sqrt(magic);
+            dLat = (dLat * 180.0) / ((A * (1 - EE)) / (magic * sqrtMagic) * PI);
+            dLon = (dLon * 180.0) / (A / sqrtMagic * Math.cos(radLat) * PI);
+            const mgLat = lat + dLat;
+            const mgLng = lng + dLon;
+            return [mgLng, mgLat];
+        }
+
+        function gcj02ToBd09(lng, lat) {
+            const z = Math.sqrt(lng * lng + lat * lat) + 0.00002 * Math.sin(lat * X_PI);
+            const theta = Math.atan2(lat, lng) + 0.000003 * Math.cos(lng * X_PI);
+            const bdLng = z * Math.cos(theta) + 0.0065;
+            const bdLat = z * Math.sin(theta) + 0.006;
+            return [bdLng, bdLat];
+        }
+
+        function transformLat(x, y) {
+            let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+            ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+            ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+            ret += (160.0 * Math.sin(y / 12.0 * PI) + 320.0 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
+            return ret;
+        }
+
+        function transformLon(x, y) {
+            let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+            ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+            ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+            ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x / 30.0 * PI)) * 2.0 / 3.0;
+            return ret;
+        }
+
+        function outOfChina(lng, lat) {
+            return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
+        }
+
+                                async function highlightRoadFromOverpass(roadName) {
+            const query = buildOverpassQuery(roadName);
+            const url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
+
+            let controller = null;
+            let abortTimer = null;
+            const fetchOptions = {};
+
+            if (typeof AbortController !== 'undefined') {
+                controller = new AbortController();
+                abortTimer = setTimeout(() => controller.abort(), 45000);
+                fetchOptions.signal = controller.signal;
+            }
+
+            let response;
+            try {
+                response = await fetch(url, fetchOptions);
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    throw new Error('overpass-timeout');
+                }
+                throw error;
+            } finally {
+                if (abortTimer) {
+                    clearTimeout(abortTimer);
+                }
+            }
+
+            if (!response || !response.ok) {
+                throw new Error('Overpass API error: ' + (response ? response.status : 'no-response'));
+            }
+
+            const data = await response.json();
+            if (!data || !Array.isArray(data.elements) || data.elements.length === 0) {
+                return { success: false };
+            }
+
+            const polylines = [];
+            const matchedNames = new Set();
+
+            data.elements.forEach(element => {
+                if (element && element.tags) {
+                    if (element.tags.name) {
+                        matchedNames.add(element.tags.name);
+                    }
+                    if (element.tags['name:zh']) {
+                        matchedNames.add(element.tags['name:zh']);
+                    }
+                    if (element.tags['name:zh-Hans']) {
+                        matchedNames.add(element.tags['name:zh-Hans']);
+                    }
+                }
+
+                if (element.type === 'way' && Array.isArray(element.geometry)) {
+                    const path = element.geometry
+                        .map(node => convertWgsToBaiduPoint(node.lon, node.lat))
+                        .filter(Boolean);
+                    if (path.length > 1) {
+                        polylines.push(path);
+                    }
+                }
+
+                if (element.type === 'relation' && Array.isArray(element.members)) {
+                    element.members.forEach(member => {
+                        if (Array.isArray(member.geometry)) {
+                            const path = member.geometry
+                                .map(node => convertWgsToBaiduPoint(node.lon, node.lat))
+                                .filter(Boolean);
+                            if (path.length > 1) {
+                                polylines.push(path);
+                            }
+                        }
+                    });
+                }
+            });
+
+            if (!polylines.length) {
+                return { success: false };
+            }
+
+            const dedupedPaths = deduplicatePolylines(polylines);
+            const pathsWithLength = dedupedPaths.map(path => ({
+                path,
+                length: calculateTotalDistance([path])
+            }));
+
+            pathsWithLength.sort((a, b) => b.length - a.length);
+
+            const MAX_SEGMENTS = 150;
+            const selectedPaths = pathsWithLength.slice(0, MAX_SEGMENTS).map(item => item.path);
+
+            const displayName = matchedNames.size ? Array.from(matchedNames)[0] : roadName;
+            const renderInfo = renderRoadHighlight(selectedPaths, displayName);
+            const totalDistance = calculateTotalDistance(selectedPaths);
+
+            return {
+                success: true,
+                meta: {
+                    displayName,
+                    length: totalDistance,
+                    method: 'overpass',
+                    segmentCount: selectedPaths.length,
+                    pointCount: renderInfo ? renderInfo.pointCount : 0,
+                    isApproximate: false
+                }
+            };
+        }
+
+        async function searchRoad() {
+            if (!roadInput) {
+                alert('\u672a\u627e\u5230\u9053\u8def\u8f93\u5165\u6846\u3002');
+                return;
+            }
+
+            const roadName = roadInput.value.trim();
+
+            if (!roadName) {
+                updateRoadFeedback('\u8bf7\u8f93\u5165\u9053\u8def\u540d\u79f0\uff08\u4f8b\u5982\uff1a\u5e72\u5c06\u897f\u8def\uff09\u3002', 'warning');
+                roadInput.focus();
+                return;
+            }
+
+            clearCurrentRoadHighlight();
+            setRoadSearchButtonState(true);
+            updateRoadFeedback('\u6b63\u5728\u5b9a\u4f4d "' + roadName + '" \uff0c\u8bf7\u7a0d\u5019...', 'loading');
+
+            let highlightResult = null;
+
+            try {
+                highlightResult = await highlightRoadFromOverpass(roadName);
+            } catch (error) {
+                console.error('\u5f00\u653e\u6570\u636e\u8bf7\u6c42\u5931\u8d25:', error);
+                const fallbackMessage = error.message === 'overpass-timeout'
+                    ? '\u5f00\u653e\u6570\u636e\u8bf7\u6c42\u8d85\u65f6\uff0c\u6b63\u5728\u5c1d\u8bd5\u767e\u5ea6\u5907\u9009\u65b9\u6848... '
+                    : '\u5f00\u653e\u6570\u636e\u6682\u4e0d\u53ef\u7528\uff0c\u6b63\u5728\u5c1d\u8bd5\u767e\u5ea6\u5907\u9009\u65b9\u6848...';
+                updateRoadFeedback(fallbackMessage, 'warning');
+            }
+
+            if (!highlightResult || !highlightResult.success) {
+                try {
+                    highlightResult = await searchRoadByName(roadName);
+                } catch (error) {
+                    console.error('\u767e\u5ea6\u5907\u9009\u65b9\u6848\u5931\u8d25:', error);
+                }
+            }
+
+            setRoadSearchButtonState(false);
+
+            if (highlightResult && highlightResult.meta) {
+                const meta = highlightResult.meta;
+                const displayName = meta.displayName || roadName;
+
+                if (meta.isApproximate) {
+                    updateRoadFeedback('\u5df2\u6807\u51fa "' + displayName + '" \u7684\u6982\u7565\u8def\u7ebf\uff0c\u8bf7\u8f93\u5165\u66f4\u5177\u4f53\u7684\u9053\u8def\u540d\u79f0\u4ee5\u63d0\u9ad8\u7cbe\u5ea6\u3002', 'warning');
+                } else if (meta.length && meta.length > 0) {
+                    const distanceValue = meta.length >= 1000
+                        ? (meta.length / 1000).toFixed(2)
+                        : meta.length.toFixed(0);
+                    const unit = meta.length >= 1000 ? '\u516c\u91cc' : '\u7c73';
+                    updateRoadFeedback('\u5df2\u9ad8\u4eae "' + displayName + '" \uff08\u7ea6 ' + distanceValue + ' ' + unit + '\uff09\u3002', 'success');
+                } else {
+                    updateRoadFeedback('\u5df2\u9ad8\u4eae "' + displayName + '"\u3002', 'success');
+                }
+            } else {
+                updateRoadFeedback('\u6682\u65e0\u6cd5\u627e\u5230 "' + roadName + '"\uff0c\u8bf7\u68c0\u67e5\u540d\u79f0\u5e76\u91cd\u8bd5\u3002', 'danger');
+            }
+        }
+
+        function searchRoadByName(roadName) {
+            return new Promise((resolve, reject) => {
+                if (!map) {
+                    reject(new Error('\u5730\u56fe\u5c1a\u672a\u521d\u59cb\u5316\u3002'));
+                    return;
+                }
+
+                const localSearch = new BMap.LocalSearch(map, {
+                    onSearchComplete: function(results) {
+                        if (localSearch.getStatus() === BMAP_STATUS_SUCCESS && results && results.getNumPois() > 0) {
+                            const firstResult = results.getPoi(0);
+                            if (!firstResult || !firstResult.point) {
+                                reject(new Error('\u672a\u83b7\u53d6\u5230\u8be5\u9053\u8def\u7684\u5750\u6807\u3002'));
+                                return;
+                            }
+
+                            const targetPoint = firstResult.point;
+                            const targetName = firstResult.title || roadName;
+                            map.centerAndZoom(targetPoint, Math.max(map.getZoom(), 16));
+
+                            highlightRoadFallback(targetPoint, targetName)
+                                .then(resolve)
+                                .catch(reject);
+                        } else {
+                            reject(new Error('\u672a\u5728\u767e\u5ea6\u68c0\u7d22\u4e2d\u627e\u5230\u8be5\u9053\u8def\u3002'));
+                        }
+                    }
+                });
+
+                localSearch.search(roadName + ' 苏州');
+            });
+        }
+
+        function highlightRoadFallback(startPoint, roadName) {
+            return new Promise((resolve) => {
+                if (!map) {
+                    resolve({
+                        success: false,
+                        meta: {
+                            displayName: roadName,
+                            method: 'fallback-init',
+                            isApproximate: true
+                        }
+                    });
+                    return;
+                }
+
+                const directions = [
+                    { lng: 0.02, lat: 0 },
+                    { lng: -0.02, lat: 0 },
+                    { lng: 0, lat: 0.02 },
+                    { lng: 0, lat: -0.02 },
+                    { lng: 0.015, lat: 0.015 },
+                    { lng: -0.015, lat: 0.015 },
+                    { lng: 0.015, lat: -0.015 },
+                    { lng: -0.015, lat: -0.015 }
+                ];
+
+                const allPoints = new Map();
+                let completedSearches = 0;
+                let finalizeTimer = null;
+                let resolved = false;
+
+                directions.forEach((direction, index) => {
+                    const endPoint = new BMap.Point(startPoint.lng + direction.lng, startPoint.lat + direction.lat);
+                    const driving = new BMap.DrivingRoute(map, {
+                        policy: BMAP_DRIVING_POLICY_LEAST_DISTANCE,
+                        onSearchComplete: function(results) {
+                            completedSearches++;
+
+                            if (results && results.getStatus && results.getStatus() === BMAP_STATUS_SUCCESS) {
+                                const plan = results.getPlan(0);
+                                if (plan && plan.getNumRoutes() > 0) {
+                                    const route = plan.getRoute(0);
+                                    const points = route.getPath();
+                                    points.forEach(point => {
+                                        const key = point.lng.toFixed(6) + ',' + point.lat.toFixed(6);
+                                        if (!allPoints.has(key)) {
+                                            allPoints.set(key, point);
+                                        }
+                                    });
+                                }
+                            }
+
+                            if (typeof driving.clearResults === 'function') {
+                                driving.clearResults();
+                            }
+
+                            if (completedSearches === directions.length) {
+                                finalize();
+                            }
+                        },
+                        renderOptions: {
+                            map: null,
+                            autoViewport: false
+                        }
+                    });
+
+                    setTimeout(() => {
+                        driving.search(startPoint, endPoint);
+                    }, index * 220);
+                });
+
+                finalizeTimer = setTimeout(() => {
+                    finalize();
+                }, directions.length * 400 + 1500);
+
+                function finalize() {
+                    if (resolved) {
+                        return;
+                    }
+                    resolved = true;
+                    if (finalizeTimer) {
+                        clearTimeout(finalizeTimer);
+                    }
+
+                    if (allPoints.size >= 5) {
+                        const orderedPoints = Array.from(allPoints.values()).sort((a, b) => map.getDistance(startPoint, a) - map.getDistance(startPoint, b));
+                        const renderInfo = renderRoadHighlight([orderedPoints], roadName, {
+                            strokeColor: '#FF7043',
+                            glowColor: 'rgba(255, 171, 145, 0.65)'
+                        });
+                        const totalDistance = calculateTotalDistance([orderedPoints]);
+                        resolve({
+                            success: true,
+                            meta: {
+                                displayName: roadName,
+                                length: totalDistance,
+                                method: 'baidu-routing',
+                                pointCount: renderInfo ? renderInfo.pointCount : orderedPoints.length,
+                                isApproximate: false
+                            }
+                        });
+                    } else {
+                        const backupPath = createPatternBasedFallback(startPoint, roadName);
+                        const renderInfo = renderRoadHighlight([backupPath], roadName, {
+                            strokeColor: '#FF8A65',
+                            glowColor: 'rgba(255, 171, 145, 0.5)',
+                            dashed: true
+                        });
+                        resolve({
+                            success: true,
+                            meta: {
+                                displayName: roadName,
+                                method: 'pattern-guess',
+                                pointCount: renderInfo ? renderInfo.pointCount : backupPath.length,
+                                isApproximate: true
+                            }
+                        });
+                    }
+                }
+
+                function createPatternBasedFallback(originPoint, name) {
+                    const simplePoints = [];
+                    const lowerName = name.toLowerCase();
+                    if (name.includes('路') || name.includes('街') || lowerName.includes('road')) {
+                        simplePoints.push(new BMap.Point(originPoint.lng - 0.015, originPoint.lat));
+                        simplePoints.push(new BMap.Point(originPoint.lng - 0.005, originPoint.lat + 0.001));
+                        simplePoints.push(originPoint);
+                        simplePoints.push(new BMap.Point(originPoint.lng + 0.005, originPoint.lat - 0.001));
+                        simplePoints.push(new BMap.Point(originPoint.lng + 0.015, originPoint.lat));
+                    } else if (name.includes('大道') || name.includes('高架') || name.includes('高速')) {
+                        simplePoints.push(new BMap.Point(originPoint.lng - 0.02, originPoint.lat - 0.002));
+                        simplePoints.push(new BMap.Point(originPoint.lng - 0.01, originPoint.lat + 0.001));
+                        simplePoints.push(originPoint);
+                        simplePoints.push(new BMap.Point(originPoint.lng + 0.01, originPoint.lat - 0.001));
+                        simplePoints.push(new BMap.Point(originPoint.lng + 0.02, originPoint.lat + 0.002));
+                    } else {
+                        simplePoints.push(new BMap.Point(originPoint.lng - 0.01, originPoint.lat - 0.003));
+                        simplePoints.push(new BMap.Point(originPoint.lng, originPoint.lat + 0.002));
+                        simplePoints.push(new BMap.Point(originPoint.lng + 0.01, originPoint.lat - 0.003));
+                    }
+                    return simplePoints;
+                }
+            });
+        }
+
+// 页面加载完成后初始化
+        window.onload = function() {
+            initMap();
+            initCharts();
+            initVideos();
+            
+            // 地图初始化完成后，加载并显示CSV路线
+            setTimeout(() => {
+                loadRouteFromCSV();
+            }, 1000); // 延迟1秒执行，确保地图完全初始化
+        };
+        
+        // 初始化视频播放
+        function initVideos() {
+            // 尝试以编程方式播放视频，解决自动播放限制
+            const video1 = document.getElementById('video1');
+            
+            if (video1) {
+                video1.play().catch(error => {
+                    console.log('Video 11.mp4 auto-play failed:', error);
+                    // 添加用户交互触发播放的逻辑
+                    document.addEventListener('click', function playOnClick() {
+                        video1.play();
+                        document.removeEventListener('click', playOnClick);
+                    }, { once: true });
+                });
+            }
+        }
+        
+        // 暴露函数到全局，以便在信息窗口中调用
+        window.centerMapOnMarker = centerMapOnMarker;
+        window.removeMarker = removeMarker;
+    </script>
+</body>
+</html>
