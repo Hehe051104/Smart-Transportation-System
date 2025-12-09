@@ -123,6 +123,7 @@
     let map;
     let currentOverlays = []; // 路网红线
     let historyOverlay = null; // 历史蓝线
+    let historyPointOverlays = []; // 历史点及标签
     let dateChart = null;
 
     // 实时追踪变量
@@ -178,6 +179,7 @@
 
         statusDiv.innerHTML = "<i class='fa fa-spinner fa-spin'></i> 查询中...";
         clearHistory(); // 清除上一条线
+        clearHistoryPoints(); // 清除历史点
 
         try {
             const url = `http://localhost:8000/api/history?start_time=${start}&end_time=${end}`;
@@ -208,6 +210,54 @@
                 });
                 map.addOverlay(historyOverlay);
 
+                // 绘制历史点并添加悬浮提示
+                points.forEach((p, idx) => {
+                    const bdPoint = bdPoints[idx];
+                    const circle = new BMap.Circle(bdPoint, 6, {
+                        strokeColor: "#1E88E5",
+                        strokeWeight: 1,
+                        strokeOpacity: 0.6,
+                        fillColor: "#1E88E5",
+                        fillOpacity: 0.9
+                    });
+
+                    const label = new BMap.Label(formatHistoryTime(p.time), {
+                        position: bdPoint,
+                        offset: new BMap.Size(12, -18)
+                    });
+                    label.setStyle({
+                        backgroundColor: "#1E88E5",
+                        color: "#FFFFFF",
+                        border: "none",
+                        borderRadius: "12px",
+                        padding: "2px 8px",
+                        fontSize: "12px",
+                        lineHeight: "16px",
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+                        whiteSpace: "nowrap"
+                    });
+
+                    map.addOverlay(circle);
+                    map.addOverlay(label);
+                    label.hide();
+
+                    let hideTimer = null;
+                    const showLabel = () => {
+                        if (hideTimer) clearTimeout(hideTimer);
+                        label.show();
+                    };
+                    const hideLabel = () => {
+                        hideTimer = setTimeout(() => label.hide(), 80);
+                    };
+
+                    circle.addEventListener('mouseover', showLabel);
+                    circle.addEventListener('mouseout', hideLabel);
+                    label.addEventListener('mouseover', showLabel);
+                    label.addEventListener('mouseout', hideLabel);
+
+                    historyPointOverlays.push({ circle, label });
+                });
+
                 // 自动缩放到轨迹范围
                 map.setViewport(bdPoints);
 
@@ -225,7 +275,17 @@
             map.removeOverlay(historyOverlay);
             historyOverlay = null;
         }
+        clearHistoryPoints();
         document.getElementById('history-status').innerHTML = "";
+    }
+
+    function clearHistoryPoints() {
+        historyPointOverlays.forEach(pair => {
+            pair.label.hide();
+            map.removeOverlay(pair.circle);
+            map.removeOverlay(pair.label);
+        });
+        historyPointOverlays = [];
     }
 
     // ==========================================
@@ -349,6 +409,14 @@
     }
     function initCharts() { new Chart(document.getElementById('dateChart'), {type: 'line', data: {labels: ['8:00', '10:00', '12:00', '14:00'], datasets: [{label:'流量',data:[10,20,15,30],borderColor:'#1E88E5',fill:true}]}, options: {responsive:true,maintainAspectRatio:false}}); }
     function initEvents() { document.getElementById('search-road-btn').addEventListener('click', searchRoad); document.getElementById('road-name').addEventListener('keydown', (e) => { if(e.key==='Enter') searchRoad(); }); }
+
+    function formatHistoryTime(timeStr) {
+        if (!timeStr) return "未知时间";
+        if (timeStr.includes('T')) {
+            return timeStr.replace('T', ' ');
+        }
+        return timeStr;
+    }
 </script>
 </body>
 </html>
