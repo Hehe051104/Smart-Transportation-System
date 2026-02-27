@@ -1,6 +1,6 @@
 import collections
 import collections.abc
-# 强行给 collections 模块把 MutableMapping 补回去 (解决 Python 3.10+ 兼容性)
+# 强行给 collections 模块把 MutableMapping 补回去 (解决 Python 3.10+ dronekit 兼容问题)
 collections.MutableMapping = collections.abc.MutableMapping
 
 import cv2
@@ -99,7 +99,7 @@ def init_db():
         SELECT f.timestamp, f.lat, f.lon, 0, 0, 0
         FROM flight_logs f
         LEFT JOIN detection_logs d
-          ON d.timestamp = f.timestamp AND d.lat = f.lat AND d.lon = f.lon
+          ON d.timestamp = f.timestamp AND d.lat = f.lat
         WHERE d.id IS NULL
     ''')
     conn.commit()
@@ -384,44 +384,81 @@ async def get_detection_counts():
 
 
 @app.get("/api/history")
-async def get_history(start_time: str, end_time: str):
+def get_history(start_time: str, end_time: str):
     """
     获取历史轨迹
     参数格式: 2023-10-27T10:00 (ISO 8601)
     """
     try:
         conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
         c = conn.cursor()
 
-        query = """
-                SELECT f.lat, f.lon, f.timestamp, 
-                       COALESCE(d.person_count, 0), 
-                       COALESCE(d.car_count, 0)
-                FROM flight_logs f
-                LEFT JOIN detection_logs d 
-                  ON f.timestamp = d.timestamp AND f.lat = d.lat AND f.lon = d.lon
-                WHERE f.timestamp BETWEEN ? AND ?
-                  AND (f.lat > 0.1 OR f.lat < -0.1)
-                  AND (f.lon > 0.1 OR f.lon < -0.1)
-                ORDER BY f.timestamp ASC
-                """
+        # 1. 获取飞行日志
+        query_flight = """
+            SELECT timestamp, lat, lon
+            FROM flight_logs
+            WHERE timestamp BETWEEN ? AND ?
+              AND (lat > 0.1 OR lat < -0.1)
+            ORDER BY timestamp ASC
+        """
+        c.execute(query_flight, (start_time, end_time))
+        flights = [dict(r) for r in c.fetchall()]
 
-        c.execute(query, (start_time, end_time))
-        rows = c.fetchall()
+        # 2. 获取检测日志
+        query_detection = """
+            SELECT timestamp, person_count, car_count
+            FROM detection_logs
+            WHERE timestamp BETWEEN ? AND ?
+            ORDER BY timestamp ASC
+        """
+        c.execute(query_detection, (start_time, end_time))
+        detections = [dict(r) for r in c.fetchall()]
+        
         conn.close()
 
-        data = []
-        for r in rows:
-            time_str = r[2].split('.')[0].replace('T', ' ')
-            data.append({
-                "lat": r[0], 
-                "lon": r[1], 
-                "time": time_str,
-                "person_count": r[3],
-                "car_count": r[4]
-            })
-        return {"status": "success", "count": len(data), "data": data}
+        # 3. 数据合并 (以时间戳秒级匹配)
+        merged_data = []
+
+        # 构建检测数据索引： timestamp(秒) -> max(counts)
+        det_map = {}
+        for d in detections:
+            # 时间戳可能带毫秒，截断到秒
+            t_key = d['timestamp'].split('.')[0]
+            current_total = d['person_count'] + d['car_count']
+            
+            if t_key not in det_map:
+                det_map[t_key] = d
+            else:
+                # 如果同一秒有多条检测记录，保留统计数更多的那条
+                existing = det_map[t_key]
+                if current_total > (existing['person_count'] + existing['car_count']):
+                    det_map[t_key] = d
+
+        # 遍历飞行轨迹进行匹配
+        for f in flights:
+            t_str = f['timestamp']
+            t_key = t_str.split('.')[0]
+            
+            item = {
+                "lat": f["lat"], 
+                "lon": f["lon"], 
+                "time": t_key.replace('T', ' '),
+                "person_count": 0,
+                "car_count": 0
+            }
+
+            if t_key in det_map:
+                d = det_map[t_key]
+                item["person_count"] = d['person_count']
+                item["car_count"] = d['car_count']
+            
+            merged_data.append(item)
+
+        return {"status": "success", "data": merged_data}
+
     except Exception as e:
+        print(f"History query error: {e}")
         return {"status": "error", "message": str(e)}
 
 
