@@ -179,6 +179,9 @@
     let dronePathPoints = [];
     let detectionMarkers = [];
     let lastDetectionRecord = 0;
+    
+    // 标记当前是否处于历史回览模式
+    let isHistoryMode = false;
 
     window.onload = function() {
         initMap();
@@ -205,6 +208,12 @@
         flatpickr("#start-time", { ...fpConfig, defaultDate: oneHourAgo });
         flatpickr("#end-time", { ...fpConfig, defaultDate: now });
     };
+
+    function updateChart(pCount, cCount) {
+        if (!dateChart) return;
+        dateChart.data.datasets[0].data = [pCount, cCount];
+        dateChart.update();
+    }
 
     function initMap() {
         map = new BMap.Map("map", {enableMapClick: false});
@@ -238,6 +247,7 @@
             const json = await res.json();
 
             if(json.status === 'success') {
+                isHistoryMode = true; // 进入历史模式
                 let points = json.data;
 
                 // --- 前端二次过滤：剔除所有 (0,0) 的点，防止拉出直线 ---
@@ -304,9 +314,12 @@
                     const showLabel = () => {
                         if (hideTimer) clearTimeout(hideTimer);
                         label.show();
+                        // 鼠标悬停时更新图表（仅在有交互时更新为历史数据）
+                        updateChart(pCount, cCount);
                     };
                     const hideLabel = () => {
                         hideTimer = setTimeout(() => label.hide(), 80);
+                        // 鼠标移出不需要立即重置，保持最后选中的状态即可，或者可以设计为重置为0
                     };
 
                     circle.addEventListener('mouseover', showLabel);
@@ -330,6 +343,11 @@
     }
 
     function clearHistory() {
+        isHistoryMode = false; // 退出历史模式
+        
+        // 恢复图表为 0 或等待下一次实时更新
+        updateChart(0, 0);
+
         if(historyOverlay) {
             map.removeOverlay(historyOverlay);
             historyOverlay = null;
@@ -356,7 +374,10 @@
                 const response = await fetch(`http://localhost:8000/api/drone_status?_t=${Date.now()}`);
                 if (!response.ok) return;
                 const data = await response.json();
-
+                
+                // 如果当前没有在看历史记录，右下角应该显示实时检测数据
+                // 已经在 startDetectionRecording 中处理了图表更新
+                
                 // 忽略无效坐标
                 if (Math.abs(data.lat) < 0.1 && Math.abs(data.lon) < 0.1) return;
 
@@ -404,6 +425,11 @@
                 const res = await fetch(`http://localhost:8000/api/detection_counts?_t=${Date.now()}`);
                 if (!res.ok) return;
                 const counts = await res.json();
+                
+                // 如果不在历史模式，更新实时图表
+                if (!isHistoryMode && counts) {
+                     updateChart(counts.person, counts.car);
+                }
 
                 // 取当前无人机位置
                 if (!droneMarker) return;
@@ -598,7 +624,41 @@
 
         document.addEventListener("mouseup", () => { resizing = false; });
     }
-    function initCharts() { new Chart(document.getElementById('dateChart'), {type: 'line', data: {labels: ['8:00', '10:00', '12:00', '14:00'], datasets: [{label:'流量',data:[10,20,15,30],borderColor:'#1E88E5',fill:true}]}, options: {responsive:true,maintainAspectRatio:false}}); }
+
+    // 初始化图表（柱状图更直观）
+    function initCharts() { 
+        const ctx = document.getElementById('dateChart').getContext('2d');
+        dateChart = new Chart(ctx, {
+            type: 'bar', 
+            data: {
+                labels: ['行人', '车辆'], 
+                datasets: [{
+                    label: '数量',
+                    data: [0, 0],
+                    backgroundColor: ['rgba(255, 99, 132, 0.8)', 'rgba(54, 162, 235, 0.8)'],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        position: 'left',
+                        ticks: { stepSize: 1, color: '#666' }
+                    },
+                    x: {
+                        ticks: { color: '#666' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        }); 
+    }
+    
     function initEvents() { document.getElementById('search-road-btn').addEventListener('click', searchRoad); document.getElementById('road-name').addEventListener('keydown', (e) => { if(e.key==='Enter') searchRoad(); }); }
 
 
