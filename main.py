@@ -33,8 +33,8 @@ app = FastAPI()
 # ----------------------------------------------------------------
 # 全局配置
 # ----------------------------------------------------------------
-RTSP_URL = "rtsp://192.168.1.202:8554/video"  # 视频流地址
-USE_TEST_VIDEO = True  # 暂时使用同级目录下的 test.mp4
+RTSP_URL = "rtsp://192.168.1.202:8554/video"  # 无人机图传/机载相机 RTSP 地址
+USE_TEST_VIDEO = False  # False=使用无人机实时视频流，True=使用同级目录下的 test.mp4
 VIDEO_SOURCE = "test.mp4" if USE_TEST_VIDEO else RTSP_URL
 DRONE_CONNECTION_STRING = 'udp:192.168.1.123:14550'  # 无人机连接地址
 DRONE_BAUD = 921600
